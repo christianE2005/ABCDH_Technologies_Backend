@@ -6,3 +6,4 @@ python-dotenv>=1.0,<2.0
 PyJWT>=2.8,<3.0
 requests>=2.32,<3.0
 cryptography>=42.0,<45.0
+gunicorn>=21,<24
