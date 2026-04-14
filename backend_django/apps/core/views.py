@@ -921,6 +921,29 @@ class GithubPushWebhookView(APIView):
         )
 
 
+class GithubAppDebugView(APIView):
+    """Temporary debug endpoint — remove after fixing private key issue."""
+    authentication_classes = []
+    permission_classes = []
+
+    def get(self, request):
+        import traceback
+        result = {
+            "github_app_id": settings.GITHUB_APP_ID or "(not set)",
+            "private_key_length": len(settings.GITHUB_APP_PRIVATE_KEY),
+            "private_key_starts_with": settings.GITHUB_APP_PRIVATE_KEY[:40] if settings.GITHUB_APP_PRIVATE_KEY else "(empty)",
+            "jwt_ok": False,
+            "jwt_error": None,
+        }
+        try:
+            _github_app_jwt()
+            result["jwt_ok"] = True
+        except Exception as exc:
+            result["jwt_error"] = str(exc)
+            result["traceback"] = traceback.format_exc()
+        return Response(result)
+
+
 class GithubConnectionStatusView(APIView):
     @extend_schema(responses={200: dict, 401: dict}, tags=["github-app"])
     def get(self, request):

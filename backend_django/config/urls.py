@@ -6,6 +6,7 @@ from rest_framework.routers import DefaultRouter
 from apps.core.views import (
     ActivityLogViewSet,
     BoardViewSet,
+    GithubAppDebugView,
     GithubAppInstallStartView,
     GithubAppLinkInstallationView,
     GithubAppOauthCallbackView,
@@ -51,6 +52,7 @@ urlpatterns = [
     path("api/github/app/oauth/start/", GithubAppOauthStartView.as_view(), name="github-app-oauth-start"),
     path("api/github/app/oauth/callback/", GithubAppOauthCallbackView.as_view(), name="github-app-oauth-callback"),
     path("api/github/app/install/link/", GithubAppLinkInstallationView.as_view(), name="github-app-install-link"),
+    path("api/github/debug/", GithubAppDebugView.as_view(), name="github-app-debug"),
     path("api/github/repos/", GithubCreateRepoView.as_view(), name="github-create-repo"),
     path("api/github/connection/status/", GithubConnectionStatusView.as_view(), name="github-connection-status"),
     path("api/github/webhook/push/", GithubPushWebhookView.as_view(), name="github-push-webhook"),
