@@ -566,13 +566,21 @@ class GithubAppOauthCallbackView(APIView):
             return None, "No se pudieron obtener las organizaciones del usuario.", status.HTTP_400_BAD_REQUEST
 
         user_org_logins = {org["login"].lower() for org in orgs_response.json()}
+
+        if not user_org_logins:
+            return (
+                None,
+                "No perteneces a ninguna organización que tenga la aplicación instalada. "
+                "Pide a un administrador que instale la app en tu organización.",
+                status.HTTP_403_FORBIDDEN,
+            )
+
         installed_orgs = set(
             GithubAppInstallation.objects.filter(
-                account_login__in=user_org_logins,
+                account_login__iregex=r"^(" + "|".join(user_org_logins) + r")$",
                 account_type="Organization",
             ).values_list("account_login", flat=True)
         )
-        # Normalize to lowercase for comparison
         installed_orgs_lower = {o.lower() for o in installed_orgs}
         matching_orgs = user_org_logins & installed_orgs_lower
 
