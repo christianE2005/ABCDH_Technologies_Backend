@@ -1182,6 +1182,25 @@ class GithubPushWebhookView(APIView):
             commits=commit_summaries,
         )
 
+        # Forward the original GitHub payload to the FastAPI AI agent
+        agent_url = settings.GITHUB_APP_WEBHOOK_TARGET_URL
+        agent_forward = {"url": agent_url or None, "status": None, "error": None}
+        if agent_url:
+            try:
+                fwd = requests.post(
+                    agent_url,
+                    data=payload_bytes,
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-GitHub-Event": event,
+                        "X-Hub-Signature-256": signature,
+                    },
+                    timeout=5,
+                )
+                agent_forward["status"] = fwd.status_code
+            except Exception as e:
+                agent_forward["error"] = str(e)
+
         return Response(
             {
                 "repository": repo_full_name,
@@ -1190,6 +1209,7 @@ class GithubPushWebhookView(APIView):
                 "installation_id": installation_id,
                 "total_commits": len(commits),
                 "commits": commit_summaries,
+                "agent_forward": agent_forward,
             },
             status=status.HTTP_200_OK,
         )

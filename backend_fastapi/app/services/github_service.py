@@ -38,8 +38,28 @@ async def _get_installation_token(installation_id: int) -> str:
     return response.json()["token"]
 
 
+async def _get_installation_id_for_repo(repo_full_name: str) -> int | None:
+    """Discover the GitHub App installation ID for a given repo via the App JWT."""
+    try:
+        app_jwt = _generate_app_jwt()
+        url = f"{GITHUB_API_URL}/repos/{repo_full_name}/installation"
+        headers = {
+            "Authorization": f"Bearer {app_jwt}",
+            "Accept": "application/vnd.github+json",
+        }
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.get(url, headers=headers)
+        if response.status_code == 200:
+            return response.json().get("id")
+    except Exception:
+        pass
+    return None
+
+
 async def fetch_push_diff(repo_full_name: str, base_sha: str, head_sha: str, installation_id: int | None = None) -> str:
     """Fetch unified diff between two commits using the GitHub App installation token."""
+    if not installation_id:
+        installation_id = await _get_installation_id_for_repo(repo_full_name)
     token = await _get_installation_token(installation_id) if installation_id else None
 
     headers: dict[str, str] = {"Accept": "application/vnd.github.v3.diff"}

@@ -48,6 +48,8 @@ async def _process_push(payload: dict, db: Session) -> None:
     commits: list = payload.get("commits") or []
     installation_id: int | None = (payload.get("installation") or {}).get("id")
 
+    logger.info("Push received: repo=%s ref=%s before=%s after=%s installation_id=%s", repo_full_name, ref, before[:7], after[:7], installation_id)
+
     if not repo_full_name:
         return
 
@@ -58,13 +60,16 @@ async def _process_push(payload: dict, db: Session) -> None:
 
     tasks = get_active_tasks(db, project.id_project)
     if not tasks:
-        logger.info("No active tasks for project %s", project.id_project)
+        logger.info("No active tasks for project %s — skipping analysis", project.id_project)
         return
 
+    logger.info("Fetching diff for %s (%s...%s) installation_id=%s", repo_full_name, before[:7], after[:7], installation_id)
     diff = await fetch_push_diff(repo_full_name, before, after, installation_id)
     if not diff:
-        logger.warning("Could not fetch diff for %s (%s...%s)", repo_full_name, before[:7], after[:7])
+        logger.warning("Empty diff for %s (%s...%s) — cannot run analysis", repo_full_name, before[:7], after[:7])
         return
+
+    logger.info("Got diff (%d chars) — sending to Gemini", len(diff))
 
     # Create a push event record so we can link matches to it
     push_event = create_or_get_push_event(
