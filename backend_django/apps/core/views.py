@@ -390,7 +390,13 @@ class ProjectMemberViewSet(viewsets.ModelViewSet):
         user = serializer.validated_data.get('user')
         if project and user and project.created_by_id == user.pk:
             raise ValidationError("El creador del proyecto ya es miembro por defecto.")
-        serializer.save()
+        member = serializer.save()
+
+        # Add as GitHub collaborator if project has a linked repo
+        if project and project.github_repo_full_name and user:
+            github_conn = GithubConnection.objects.filter(user=user).first()
+            if github_conn and github_conn.github_login:
+                _add_github_collaborator(project.github_repo_full_name, github_conn.github_login)
 
     def get_queryset(self):
         user = self.request.user
