@@ -8,6 +8,7 @@ from .models import (
     GithubRepo,
     Project,
     ProjectMember,
+    ProjectRepo,
     Role,
     SystemRole,
     Task,
@@ -57,6 +58,13 @@ class ProjectSerializer(serializers.ModelSerializer):
     class Meta:
         model = Project
         fields = "__all__"
+
+
+class ProjectRepoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProjectRepo
+        fields = "__all__"
+        read_only_fields = ["id_project_repo", "created_at"]
 
 
 class RoleSerializer(serializers.ModelSerializer):

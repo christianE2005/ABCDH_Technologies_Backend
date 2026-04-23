@@ -5,24 +5,20 @@ from datetime import datetime, timezone
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.models.models import Board, GithubPushEvent, Project, Task, TaskComment, TaskPushMatch, TaskStatus, TaskWarning
+from app.models.models import Board, GithubPushEvent, Project, ProjectRepo, Task, TaskComment, TaskPushMatch, TaskStatus, TaskWarning
 
 logger = logging.getLogger(__name__)
 
 
 def get_project_by_repo(db: Session, repo_full_name: str) -> Project | None:
-    all_projects = db.query(Project.id_project, Project.github_repo_full_name).all()
-    logger.info(
-        "DB project lookup: searching '%s' among %d projects: %s",
-        repo_full_name,
-        len(all_projects),
-        [(p.id_project, p.github_repo_full_name) for p in all_projects],
-    )
-    return (
-        db.query(Project)
-        .filter(func.lower(Project.github_repo_full_name) == repo_full_name.lower())
+    project_repo = (
+        db.query(ProjectRepo)
+        .filter(func.lower(ProjectRepo.repo_full_name) == repo_full_name.lower())
         .first()
     )
+    if not project_repo:
+        return None
+    return db.query(Project).filter(Project.id_project == project_repo.id_project).first()
 
 
 def get_active_tasks(db: Session, project_id: int) -> list[Task]:

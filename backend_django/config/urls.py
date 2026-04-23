@@ -21,6 +21,8 @@ from apps.core.views import (
     LoginView,
     ProjectMembersView,
     ProjectMemberViewSet,
+    ProjectRepoDetailView,
+    ProjectRepoView,
     ProjectViewSet,
     RefreshView,
     RoleViewSet,
@@ -70,5 +72,7 @@ urlpatterns = [
     path("api/task-warnings/", TaskWarningListView.as_view(), name="task-warning-list"),
     path("api/tasks/<int:task_id>/history/", TaskHistoryView.as_view(), name="task-push-history"),
     path("api/projects/<int:project_id>/members/", ProjectMembersView.as_view(), name="project-members"),
+    path("api/projects/<int:project_id>/repos/", ProjectRepoView.as_view(), name="project-repos"),
+    path("api/projects/<int:project_id>/repos/<int:repo_id>/", ProjectRepoDetailView.as_view(), name="project-repo-detail"),
     path("api/", include(router.urls)),
 ]

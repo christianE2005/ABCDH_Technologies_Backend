@@ -93,6 +93,22 @@ class Project(models.Model):
         db_table = "project"
 
 
+class ProjectRepo(models.Model):
+    id_project_repo = models.BigAutoField(primary_key=True)
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        db_column="id_project",
+        related_name="repos",
+    )
+    repo_full_name = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "project_repo"
+        unique_together = [("project", "repo_full_name")]
+
+
 class Role(models.Model):
     id_role = models.BigAutoField(primary_key=True)
     name = models.CharField(max_length=50, unique=True)

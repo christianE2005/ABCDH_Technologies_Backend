@@ -31,6 +31,19 @@ class Project(Base):
     github_repo_full_name: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
 
 
+class ProjectRepo(Base):
+    __tablename__ = "project_repo"
+
+    id_project_repo: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    id_project: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("project.id_project", ondelete="CASCADE"),
+        nullable=False,
+    )
+    repo_full_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[DateTime] = mapped_column(DateTime, server_default=func.now())
+
+
 class Role(Base):
     __tablename__ = "role"
 

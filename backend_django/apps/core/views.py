@@ -29,6 +29,7 @@ from .models import (
     GithubRepo,
     Project,
     ProjectMember,
+    ProjectRepo,
     Role,
     SystemRole,
     Task,
@@ -50,6 +51,7 @@ from .serializers import (
     GithubRepoSerializer,
     LoginSerializer,
     ProjectMemberSerializer,
+    ProjectRepoSerializer,
     ProjectSerializer,
     RefreshSerializer,
     RegisterSerializer,
@@ -365,19 +367,21 @@ class ProjectMemberViewSet(viewsets.ModelViewSet):
             raise ValidationError("El creador del proyecto ya es miembro por defecto.")
         member = serializer.save()
 
-        # Add as GitHub collaborator if project has a linked repo
+        # Add as GitHub collaborator if project has linked repos
         # Use the project creator's OAuth token (they have admin on the repo)
-        if project and project.github_repo_full_name and user:
+        if project and user:
+            project_repos = ProjectRepo.objects.filter(project=project).values_list("repo_full_name", flat=True)
             new_user_conn = GithubConnection.objects.filter(user=user).first()
             creator_conn = GithubConnection.objects.filter(user_id=project.created_by_id).first()
             if new_user_conn and new_user_conn.github_login and creator_conn:
                 admin_token = _get_valid_github_token(creator_conn)
                 if admin_token:
-                    _add_github_collaborator(
-                        project.github_repo_full_name,
-                        new_user_conn.github_login,
-                        admin_token,
-                    )
+                    for repo_full_name in project_repos:
+                        _add_github_collaborator(
+                            repo_full_name,
+                            new_user_conn.github_login,
+                            admin_token,
+                        )
 
     def get_queryset(self):
         user = self.request.user
@@ -434,10 +438,11 @@ class ProjectMembersView(APIView):
 
         member = ProjectMember.objects.create(project=project, user=user, role=role)
 
-        # If the project has a linked repo, add the new member as a collaborator on GitHub
-        # Use the project creator's OAuth token (they have admin on the repo)
+        # If the project has linked repos, add the new member as a collaborator on GitHub
+        # Use the project creator's OAuth token (they have admin on the repos)
         github_collab_result = None
-        if project.github_repo_full_name:
+        project_repos = list(ProjectRepo.objects.filter(project=project).values_list("repo_full_name", flat=True))
+        if project_repos:
             new_user_conn = GithubConnection.objects.filter(user=user).first()
             creator_conn = GithubConnection.objects.filter(user_id=project.created_by_id).first()
             if not new_user_conn or not new_user_conn.github_login:
@@ -449,13 +454,16 @@ class ProjectMembersView(APIView):
                 if not admin_token:
                     github_collab_result = "skipped: project creator's GitHub token expired"
                 else:
-                    github_collab_result = _add_github_collaborator(
-                        project.github_repo_full_name,
-                        new_user_conn.github_login,
-                        admin_token,
-                    )
+                    results = []
+                    for repo_full_name in project_repos:
+                        results.append(_add_github_collaborator(
+                            repo_full_name,
+                            new_user_conn.github_login,
+                            admin_token,
+                        ))
+                    github_collab_result = results
         else:
-            github_collab_result = "skipped: project has no linked repo"
+            github_collab_result = "skipped: project has no linked repos"
 
         response_data = ProjectMemberSerializer(member).data
         response_data["github_collaborator"] = github_collab_result
@@ -1055,6 +1063,12 @@ class GithubCreateRepoView(APIView):
         )
         project_obj.refresh_from_db()
 
+        # Register in project_repo (multi-repo support)
+        ProjectRepo.objects.get_or_create(
+            project=project_obj,
+            repo_full_name=repo.get("full_name"),
+        )
+
         # Always persist the repo so it can be listed later
         GithubRepo.objects.update_or_create(
             github_repo_id=repo["id"],
@@ -1202,7 +1216,7 @@ class GithubPushWebhookView(APIView):
         ref = payload.get("ref", "")
         pusher_name = (payload.get("pusher") or {}).get("name")
 
-        project = Project.objects.filter(github_repo_full_name__iexact=repo_full_name).first()
+        project = Project.objects.filter(repos__repo_full_name__iexact=repo_full_name).first()
         GithubPushEvent.objects.create(
             project=project,
             repo_full_name=repo_full_name,
@@ -1596,4 +1610,76 @@ class GithubConnectionStatusView(APIView):
         if deleted:
             return Response({"detail": "Cuenta de GitHub desvinculada correctamente."}, status=status.HTTP_200_OK)
         return Response({"detail": "No había ninguna cuenta de GitHub vinculada."}, status=status.HTTP_404_NOT_FOUND)
+
+
+MAX_REPOS_PER_PROJECT = 4
+
+
+class ProjectRepoView(APIView):
+    @extend_schema(responses={200: ProjectRepoSerializer(many=True)}, tags=["projects"])
+    def get(self, request, project_id):
+        """Lista los repositorios vinculados a un proyecto."""
+        project = Project.objects.filter(pk=project_id).first()
+        if not project:
+            return Response({"detail": "Proyecto no encontrado."}, status=status.HTTP_404_NOT_FOUND)
+
+        is_member = (
+            project.created_by == request.user
+            or ProjectMember.objects.filter(project=project, user=request.user).exists()
+        )
+        if not is_member:
+            return Response({"detail": "No tienes acceso a este proyecto."}, status=status.HTTP_403_FORBIDDEN)
+
+        repos = ProjectRepo.objects.filter(project=project).order_by("created_at")
+        return Response(ProjectRepoSerializer(repos, many=True).data)
+
+    @extend_schema(
+        request={"application/json": {"type": "object", "properties": {"repo_full_name": {"type": "string"}}, "required": ["repo_full_name"]}},
+        responses={201: ProjectRepoSerializer, 400: dict, 403: dict, 404: dict},
+        tags=["projects"],
+    )
+    def post(self, request, project_id):
+        """Vincula un repositorio a un proyecto (máximo 4)."""
+        project = Project.objects.filter(pk=project_id).first()
+        if not project:
+            return Response({"detail": "Proyecto no encontrado."}, status=status.HTTP_404_NOT_FOUND)
+
+        if project.created_by != request.user:
+            return Response({"detail": "Solo el creador del proyecto puede vincular repositorios."}, status=status.HTTP_403_FORBIDDEN)
+
+        repo_full_name = (request.data.get("repo_full_name") or "").strip()
+        if not repo_full_name:
+            return Response({"detail": "repo_full_name es requerido."}, status=status.HTTP_400_BAD_REQUEST)
+
+        current_count = ProjectRepo.objects.filter(project=project).count()
+        if current_count >= MAX_REPOS_PER_PROJECT:
+            return Response(
+                {"detail": f"El proyecto ya tiene el máximo de {MAX_REPOS_PER_PROJECT} repositorios vinculados."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        repo, created = ProjectRepo.objects.get_or_create(project=project, repo_full_name=repo_full_name)
+        if not created:
+            return Response({"detail": "Este repositorio ya está vinculado al proyecto."}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(ProjectRepoSerializer(repo).data, status=status.HTTP_201_CREATED)
+
+
+class ProjectRepoDetailView(APIView):
+    @extend_schema(responses={204: None, 403: dict, 404: dict}, tags=["projects"])
+    def delete(self, request, project_id, repo_id):
+        """Desvincula un repositorio de un proyecto."""
+        project = Project.objects.filter(pk=project_id).first()
+        if not project:
+            return Response({"detail": "Proyecto no encontrado."}, status=status.HTTP_404_NOT_FOUND)
+
+        if project.created_by != request.user:
+            return Response({"detail": "Solo el creador del proyecto puede desvincular repositorios."}, status=status.HTTP_403_FORBIDDEN)
+
+        repo = ProjectRepo.objects.filter(pk=repo_id, project=project).first()
+        if not repo:
+            return Response({"detail": "Repositorio no encontrado."}, status=status.HTTP_404_NOT_FOUND)
+
+        repo.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
