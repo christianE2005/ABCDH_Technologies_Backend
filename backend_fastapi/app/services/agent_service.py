@@ -84,11 +84,19 @@ def analyze_push(
         diff=diff[:_MAX_DIFF_CHARS],
     )
 
-    text = generate_content(prompt).strip()
+    text = generate_content(prompt, json_mode=True).strip()
+
+    # Strip markdown code fences if model ignored json_mode
     if text.startswith("```"):
         parts = text.split("```")
         text = parts[1] if len(parts) > 1 else text
         if text.startswith("json"):
             text = text[4:].strip()
+
+    # Find outermost JSON object in case of extra text
+    start = text.find("{")
+    end = text.rfind("}") + 1
+    if start != -1 and end > start:
+        text = text[start:end]
 
     return json.loads(text)
