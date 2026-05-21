@@ -161,6 +161,35 @@ class Board(models.Model):
         ("general", "General — Story + code quality suggestions"),
     ]
 
+    TECH_STACK_CHOICES = [
+        ("mixed", "Mixed / Full-Stack"),
+        ("python", "Python"),
+        ("nodejs", "Node.js / JavaScript"),
+        ("typescript", "TypeScript / Node.js"),
+        ("java", "Java / Spring"),
+        ("go", "Go"),
+        ("dotnet", "C# / .NET"),
+        ("react", "React"),
+        ("nextjs", "Next.js"),
+        ("angular", "Angular"),
+        ("vue", "Vue.js"),
+        ("vite", "Vite / Vanilla JS"),
+    ]
+
+    NAMING_CONVENTION_CHOICES = [
+        ("default", "Language defaults"),
+        ("camel_case", "camelCase"),
+        ("pascal_case", "PascalCase"),
+        ("snake_case", "snake_case"),
+        ("kebab_case", "kebab-case"),
+        ("mixed", "Mixed (snake_case + camelCase + PascalCase)"),
+    ]
+
+    RESPONSE_LANGUAGE_CHOICES = [
+        ("es", "Español"),
+        ("en", "English"),
+    ]
+
     id_board = models.BigAutoField(primary_key=True)
     project = models.ForeignKey(
         Project,
@@ -180,6 +209,22 @@ class Board(models.Model):
         choices=REVIEW_FOCUS_CHOICES,
         default="general",
     )
+    tech_stack = models.CharField(
+        max_length=20,
+        choices=TECH_STACK_CHOICES,
+        default="mixed",
+    )
+    naming_convention = models.CharField(
+        max_length=20,
+        choices=NAMING_CONVENTION_CHOICES,
+        default="default",
+    )
+    response_language = models.CharField(
+        max_length=5,
+        choices=RESPONSE_LANGUAGE_CHOICES,
+        default="es",
+    )
+    custom_instructions = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -521,6 +566,15 @@ class TaskWarning(models.Model):
         (STATUS_RESOLVED, "Resolved"),
     ]
 
+    SEVERITY_CRITICAL = "critical"
+    SEVERITY_WARNING = "warning"
+    SEVERITY_INFO = "info"
+    SEVERITY_CHOICES = [
+        (SEVERITY_CRITICAL, "Critical"),
+        (SEVERITY_WARNING, "Warning"),
+        (SEVERITY_INFO, "Info"),
+    ]
+
     id_warning = models.BigAutoField(primary_key=True)
     task = models.ForeignKey(
         Task,
@@ -529,6 +583,7 @@ class TaskWarning(models.Model):
         related_name="warnings",
     )
     message = models.TextField()
+    severity = models.CharField(max_length=10, choices=SEVERITY_CHOICES, default=SEVERITY_WARNING)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_ACTIVE)
     created_at = models.DateTimeField(auto_now_add=True)
     resolved_at = models.DateTimeField(null=True, blank=True)

@@ -39,8 +39,8 @@ def get_board_coding_style(db: Session, project_id: int) -> str:
     return board.coding_style if board else "standard"
 
 
-def get_board_review_settings(db: Session, project_id: int) -> tuple[str, str]:
-    """Return (coding_style, review_focus) for the board with the review column."""
+def get_board_review_settings(db: Session, project_id: int) -> tuple[str, str, str, str, str, str | None]:
+    """Return (coding_style, review_focus, tech_stack, naming_convention, response_language, custom_instructions) for the board with the review column."""
     board = (
         db.query(Board)
         .join(BoardColumn, BoardColumn.id_board == Board.id_board)
@@ -53,8 +53,15 @@ def get_board_review_settings(db: Session, project_id: int) -> tuple[str, str]:
     if not board:
         board = db.query(Board).filter(Board.id_project == project_id).first()
     if not board:
-        return "standard", "general"
-    return board.coding_style or "standard", board.review_focus or "general"
+        return "standard", "general", "mixed", "default", "es", None
+    return (
+        board.coding_style or "standard",
+        board.review_focus or "general",
+        board.tech_stack or "mixed",
+        board.naming_convention or "default",
+        board.response_language or "es",
+        board.custom_instructions or None,
+    )
 
 
 def get_active_tasks(db: Session, project_id: int) -> list[Task]:
@@ -104,10 +111,11 @@ def get_active_warnings(db: Session, task_id: int) -> list[TaskWarning]:
     )
 
 
-def create_warning(db: Session, task_id: int, message: str, push_id: int | None = None) -> TaskWarning:
+def create_warning(db: Session, task_id: int, message: str, push_id: int | None = None, severity: str = "warning") -> TaskWarning:
     warning = TaskWarning(
         id_task=task_id,
         message=message,
+        severity=severity,
         status="active",
         id_push_created=push_id,
     )

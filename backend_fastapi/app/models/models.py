@@ -87,6 +87,10 @@ class Board(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     coding_style: Mapped[str] = mapped_column(String(20), nullable=False, default="standard")
     review_focus: Mapped[str] = mapped_column(String(10), nullable=False, default="general")
+    tech_stack: Mapped[str] = mapped_column(String(20), nullable=False, default="mixed")
+    naming_convention: Mapped[str] = mapped_column(String(20), nullable=False, default="default")
+    response_language: Mapped[str] = mapped_column(String(5), nullable=False, default="es")
+    custom_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[DateTime] = mapped_column(DateTime, server_default=func.now())
 
 
@@ -208,6 +212,7 @@ class TaskWarning(Base):
         nullable=False,
     )
     message: Mapped[str] = mapped_column(Text, nullable=False)
+    severity: Mapped[str] = mapped_column(String(10), nullable=False, default="warning")
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     created_at: Mapped[DateTime] = mapped_column(DateTime, server_default=func.now())
     resolved_at: Mapped[DateTime | None] = mapped_column(DateTime, nullable=True)

@@ -99,9 +99,9 @@ async def _run_push_analysis(payload: dict, db: Session) -> None:
             ]
 
     try:
-        coding_style, review_focus = get_board_review_settings(db, project.id_project)
-        analysis = analyze_push(stories, diff, active_warnings=active_warnings_map, coding_style=coding_style, review_focus=review_focus)
-        logger.info("Analysis complete for project %s (style=%s, focus=%s): %d matches", project.id_project, coding_style, review_focus, len(analysis.get("matches", [])))
+        coding_style, review_focus, tech_stack, naming_convention, response_language, custom_instructions = get_board_review_settings(db, project.id_project)
+        analysis = analyze_push(stories, diff, active_warnings=active_warnings_map, coding_style=coding_style, review_focus=review_focus, tech_stack=tech_stack, naming_convention=naming_convention, response_language=response_language, custom_instructions=custom_instructions)
+        logger.info("Analysis complete for project %s (style=%s, focus=%s, stack=%s, naming=%s, lang=%s, custom=%s): %d matches", project.id_project, coding_style, review_focus, tech_stack, naming_convention, response_language, bool(custom_instructions), len(analysis.get("matches", [])))
     except Exception as exc:
         logger.error("Claude analysis failed: %s", exc)
         return
@@ -126,9 +126,16 @@ async def _run_push_analysis(payload: dict, db: Session) -> None:
                 logger.info("Warning %s resolved for story %s.", w.id_warning, story_id)
 
         new_warnings = match.get("new_warnings") or []
-        for msg in new_warnings:
-            create_warning(db, story_id, msg, push_id=push_event.id_push)
-            logger.info("New warning created for story %s: %s", story_id, msg)
+        for w in new_warnings:
+            if isinstance(w, dict):
+                msg = w.get("message", "")
+                sev = w.get("severity", "warning")
+            else:
+                msg = str(w)
+                sev = "warning"
+            if msg:
+                create_warning(db, story_id, msg, push_id=push_event.id_push, severity=sev)
+                logger.info("New warning created for story %s [%s]: %s", story_id, sev, msg)
 
         coverage = match.get("coverage", "partial")
         code_snippet = match.get("code_snippet")
@@ -152,7 +159,12 @@ async def _run_push_analysis(payload: dict, db: Session) -> None:
             lines.append(f"\n**Warnings resueltos:** {len(resolved_ids)}")
         if new_warnings:
             lines.append("\n**Nuevos warnings:**")
-            lines.extend(f"- {w}" for w in new_warnings)
+            for w in new_warnings:
+                if isinstance(w, dict):
+                    badge = {"critical": "🔴", "warning": "🟡", "info": "🔵"}.get(w.get("severity", "warning"), "🟡")
+                    lines.append(f"- {badge} {w.get('message', '')}")
+                else:
+                    lines.append(f"- 🟡 {w}")
 
         add_agent_comment(db, story_id, "\n".join(lines))
         logger.info("Story %s moved to Review and comment added.", story_id)
