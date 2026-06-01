@@ -14,6 +14,8 @@ from .models import (
     ProjectRepo,
     Role,
     Sprint,
+    SprintBoard,
+    Subtask,
     SystemRole,
     Tag,
     Task,
@@ -35,6 +37,7 @@ admin.site.register(ProjectMember)
 admin.site.register(Board)
 admin.site.register(BoardColumn)
 admin.site.register(Sprint)
+admin.site.register(SprintBoard)
 admin.site.register(Milestone)
 admin.site.register(Tag)
 admin.site.register(TaskStatus)
@@ -44,6 +47,7 @@ admin.site.register(TaskAssignment)
 admin.site.register(TaskComment)
 admin.site.register(TaskWarning)
 admin.site.register(TaskPushMatch)
+admin.site.register(Subtask)
 admin.site.register(ActivityLog)
 admin.site.register(GithubConnection)
 admin.site.register(GithubAppInstallation)

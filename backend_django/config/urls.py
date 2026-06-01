@@ -29,7 +29,9 @@ from apps.core.views import (
     ProjectViewSet,
     RefreshView,
     RoleViewSet,
+    SprintBoardViewSet,
     SprintViewSet,
+    SubtaskViewSet,
     SystemRoleViewSet,
     TagViewSet,
     TaskAssignmentViewSet,
@@ -60,6 +62,8 @@ router.register(r"task-priorities", TaskPriorityViewSet)
 router.register(r"tasks", TaskViewSet)
 router.register(r"task-assignments", TaskAssignmentViewSet)
 router.register(r"task-comments", TaskCommentViewSet)
+router.register(r"subtasks", SubtaskViewSet)
+router.register(r"sprint-boards", SprintBoardViewSet)
 router.register(r"activity-logs", ActivityLogViewSet)
 
 urlpatterns = [

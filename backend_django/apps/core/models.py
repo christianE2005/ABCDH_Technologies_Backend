@@ -77,6 +77,7 @@ class Project(models.Model):
     name = models.CharField(max_length=150)
     description = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    start_date = models.DateField(null=True, blank=True)
     end_date = models.DateField(null=True, blank=True)
     status = models.CharField(max_length=50, choices=STATUS_CHOICES, default=IN_PROGRESS)
     created_by = models.ForeignKey(
@@ -280,12 +281,41 @@ class Sprint(models.Model):
     start_date = models.DateField(null=True, blank=True)
     end_date = models.DateField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=PLANNED)
+    boards = models.ManyToManyField(
+        "Board",
+        through="SprintBoard",
+        blank=True,
+        related_name="sprints",
+    )
 
     class Meta:
         db_table = "sprint"
 
     def __str__(self):
         return self.name
+
+
+class SprintBoard(models.Model):
+    id_sprint_board = models.BigAutoField(primary_key=True)
+    sprint = models.ForeignKey(
+        Sprint,
+        on_delete=models.CASCADE,
+        db_column="id_sprint",
+        related_name="sprint_boards",
+    )
+    board = models.ForeignKey(
+        Board,
+        on_delete=models.CASCADE,
+        db_column="id_board",
+        related_name="sprint_boards",
+    )
+
+    class Meta:
+        db_table = "sprint_board"
+        unique_together = ("sprint", "board")
+
+    def __str__(self):
+        return f"{self.sprint.name} — {self.board.name}"
 
 
 class Milestone(models.Model):
@@ -404,6 +434,7 @@ class Task(models.Model):
     scrum_number = models.PositiveIntegerField(null=True, blank=True)
     story_points = models.PositiveSmallIntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    start_date = models.DateField(null=True, blank=True)
     due_date = models.DateField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 
@@ -429,6 +460,28 @@ class Task(models.Model):
         else:
             self.completed_at = None
         super().save(*args, **kwargs)
+
+
+class Subtask(models.Model):
+    id_subtask = models.BigAutoField(primary_key=True)
+    parent_task = models.ForeignKey(
+        Task,
+        on_delete=models.CASCADE,
+        db_column="id_task",
+        related_name="subtasks",
+    )
+    title = models.CharField(max_length=200)
+    description = models.TextField(null=True, blank=True)
+    order = models.PositiveIntegerField(default=0)
+    is_completed = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "subtask"
+        ordering = ["order"]
+
+    def __str__(self):
+        return self.title
 
 
 class TaskAssignment(models.Model):

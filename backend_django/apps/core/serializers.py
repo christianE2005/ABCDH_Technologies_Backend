@@ -14,6 +14,8 @@ from .models import (
     ProjectRepo,
     Role,
     Sprint,
+    SprintBoard,
+    Subtask,
     SystemRole,
     Tag,
     Task,
@@ -101,6 +103,13 @@ class SprintSerializer(serializers.ModelSerializer):
     class Meta:
         model = Sprint
         fields = "__all__"
+        read_only_fields = ["boards"]
+
+
+class SprintBoardSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SprintBoard
+        fields = "__all__"
 
 
 class MilestoneSerializer(serializers.ModelSerializer):
@@ -187,6 +196,12 @@ class TaskAssignmentSerializer(serializers.ModelSerializer):
 class TaskCommentSerializer(serializers.ModelSerializer):
     class Meta:
         model = TaskComment
+        fields = "__all__"
+
+
+class SubtaskSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Subtask
         fields = "__all__"
 
 

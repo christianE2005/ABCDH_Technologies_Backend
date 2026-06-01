@@ -37,6 +37,8 @@ from .models import (
     ProjectRepo,
     Role,
     Sprint,
+    SprintBoard,
+    Subtask,
     SystemRole,
     Tag,
     Task,
@@ -66,7 +68,9 @@ from .serializers import (
     RefreshSerializer,
     RegisterSerializer,
     RoleSerializer,
+    SprintBoardSerializer,
     SprintSerializer,
+    SubtaskSerializer,
     SystemRoleSerializer,
     TagSerializer,
     TaskAssignmentSerializer,
@@ -379,13 +383,13 @@ class RoleViewSet(viewsets.ModelViewSet):
     serializer_class = RoleSerializer
 
     def get_permissions(self):
-        if self.action in ('list', 'retrieve'):
+        if getattr(self, 'action', None) in ('list', 'retrieve'):
             authentication_classes = []
             return [AllowAny()]
         return [IsAdminUser()]
 
     def get_authenticators(self):
-        if self.action in ('list', 'retrieve'):
+        if getattr(self, 'action', None) in ('list', 'retrieve'):
             return []
         return super().get_authenticators()
 
@@ -716,6 +720,41 @@ class TaskAssignmentViewSet(viewsets.ModelViewSet):
             qs = qs.filter(task_id=task_id)
         if user_id_param is not None:
             qs = qs.filter(assigned_to_id=user_id_param)
+        return qs
+
+
+class SubtaskViewSet(viewsets.ModelViewSet):
+    queryset = Subtask.objects.all()
+    serializer_class = SubtaskSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        user_project_ids = Project.objects.filter(
+            Q(members__user=user) | Q(created_by=user)
+        ).values_list('id_project', flat=True)
+        qs = Subtask.objects.filter(parent_task__project_id__in=user_project_ids)
+        task_id = self.request.query_params.get('task')
+        if task_id is not None:
+            qs = qs.filter(parent_task_id=task_id)
+        return qs
+
+
+class SprintBoardViewSet(viewsets.ModelViewSet):
+    queryset = SprintBoard.objects.all()
+    serializer_class = SprintBoardSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        user_project_ids = Project.objects.filter(
+            Q(members__user=user) | Q(created_by=user)
+        ).values_list('id_project', flat=True)
+        qs = SprintBoard.objects.filter(sprint__project_id__in=user_project_ids)
+        sprint_id = self.request.query_params.get('sprint')
+        if sprint_id is not None:
+            qs = qs.filter(sprint_id=sprint_id)
+        board_id = self.request.query_params.get('board')
+        if board_id is not None:
+            qs = qs.filter(board_id=board_id)
         return qs
 
 
