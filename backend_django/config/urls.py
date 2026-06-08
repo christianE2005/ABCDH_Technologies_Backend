@@ -5,9 +5,14 @@ from rest_framework.routers import DefaultRouter
 
 from apps.core.views import (
     ActivityLogViewSet,
+    BadgeViewSet,
     BoardColumnViewSet,
     BoardViewSet,
     ChangePasswordView,
+    GamificationProfileView,
+    GamificationRecomputeView,
+    LeaderboardView,
+    UserBadgeListView,
     GithubAppDebugView,
     GithubAppInstallStartView,
     GithubAppLinkInstallationView,
@@ -65,6 +70,7 @@ router.register(r"task-comments", TaskCommentViewSet)
 router.register(r"subtasks", SubtaskViewSet)
 router.register(r"sprint-boards", SprintBoardViewSet)
 router.register(r"activity-logs", ActivityLogViewSet)
+router.register(r"gamification/badges", BadgeViewSet)
 
 urlpatterns = [
     path("admin/", admin.site.urls),
@@ -92,6 +98,10 @@ urlpatterns = [
     path("api/task-warnings/<int:warning_id>/", TaskWarningDetailView.as_view(), name="task-warning-detail"),
     path("api/tasks/<int:task_id>/history/", TaskHistoryView.as_view(), name="task-push-history"),
     path("api/tasks/<int:task_id>/branch/", TaskCreateBranchView.as_view(), name="task-create-branch"),
+    path("api/gamification/profile/", GamificationProfileView.as_view(), name="gamification-profile"),
+    path("api/gamification/user-badges/", UserBadgeListView.as_view(), name="gamification-user-badges"),
+    path("api/gamification/leaderboard/", LeaderboardView.as_view(), name="gamification-leaderboard"),
+    path("api/gamification/recompute/", GamificationRecomputeView.as_view(), name="gamification-recompute"),
     path("api/projects/<int:project_id>/members/", ProjectMembersView.as_view(), name="project-members"),
     path("api/projects/<int:project_id>/repos/", ProjectRepoView.as_view(), name="project-repos"),
     path("api/projects/<int:project_id>/repos/<int:repo_id>/", ProjectRepoDetailView.as_view(), name="project-repo-detail"),

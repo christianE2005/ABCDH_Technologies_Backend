@@ -700,6 +700,104 @@ class TaskPushMatch(models.Model):
         unique_together = ("task", "push")
 
 
+class Badge(models.Model):
+    """Catalog of earnable badges (seeded, admin-editable)."""
+
+    CATEGORY_DELIVERY = "delivery"
+    CATEGORY_QUALITY = "quality"
+    CATEGORY_TEAMWORK = "teamwork"
+    CATEGORY_MILESTONE = "milestone"
+    CATEGORY_CHOICES = [
+        (CATEGORY_DELIVERY, "Delivery"),
+        (CATEGORY_QUALITY, "Quality"),
+        (CATEGORY_TEAMWORK, "Teamwork"),
+        (CATEGORY_MILESTONE, "Milestone"),
+    ]
+
+    id_badge = models.BigAutoField(primary_key=True)
+    code = models.CharField(max_length=50, unique=True)
+    name = models.CharField(max_length=100)
+    description = models.TextField(null=True, blank=True)
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default=CATEGORY_DELIVERY)
+    tier = models.PositiveSmallIntegerField(default=1)
+    icon = models.CharField(max_length=50, null=True, blank=True)
+    xp_reward = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "badge"
+        ordering = ["category", "tier", "code"]
+
+    def __str__(self):
+        return self.code
+
+
+class UserBadge(models.Model):
+    """A badge unlocked by a user (optionally scoped to a project)."""
+
+    id_user_badge = models.BigAutoField(primary_key=True)
+    user = models.ForeignKey(
+        UserAccount,
+        on_delete=models.CASCADE,
+        db_column="id_user",
+        related_name="user_badges",
+    )
+    badge = models.ForeignKey(
+        Badge,
+        on_delete=models.CASCADE,
+        db_column="id_badge",
+        related_name="user_badges",
+    )
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        db_column="id_project",
+        related_name="user_badges",
+    )
+    unlocked_at = models.DateTimeField(auto_now_add=True)
+    progress = models.IntegerField(null=True, blank=True)
+
+    class Meta:
+        db_table = "user_badge"
+        ordering = ["-unlocked_at"]
+        constraints = [
+            # NULLs are distinct in SQL, so a plain unique_together over a nullable
+            # column would not prevent duplicate global unlocks. Split into two.
+            models.UniqueConstraint(
+                fields=["user", "badge", "project"],
+                name="unique_user_badge_per_project",
+                condition=models.Q(project__isnull=False),
+            ),
+            models.UniqueConstraint(
+                fields=["user", "badge"],
+                name="unique_user_badge_global",
+                condition=models.Q(project__isnull=True),
+            ),
+        ]
+
+
+class UserStats(models.Model):
+    """Optional snapshot cache of computed gamification stats, refreshed by recompute."""
+
+    id_user_stats = models.BigAutoField(primary_key=True)
+    user = models.OneToOneField(
+        UserAccount,
+        on_delete=models.CASCADE,
+        db_column="id_user",
+        related_name="gamification_stats",
+    )
+    total_xp = models.PositiveIntegerField(default=0)
+    level = models.PositiveIntegerField(default=1)
+    current_streak = models.PositiveIntegerField(default=0)
+    longest_streak = models.PositiveIntegerField(default=0)
+    computed_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "user_stats"
+
+
 class GithubRepo(models.Model):
     id_repo = models.BigAutoField(primary_key=True)
     user = models.ForeignKey(

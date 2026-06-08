@@ -2,6 +2,7 @@ from django.contrib import admin
 
 from .models import (
     ActivityLog,
+    Badge,
     Board,
     BoardColumn,
     GithubAppInstallation,
@@ -26,6 +27,8 @@ from .models import (
     TaskStatus,
     TaskWarning,
     UserAccount,
+    UserBadge,
+    UserStats,
 )
 
 admin.site.register(UserAccount)
@@ -53,3 +56,6 @@ admin.site.register(GithubConnection)
 admin.site.register(GithubAppInstallation)
 admin.site.register(GithubPushEvent)
 admin.site.register(GithubRepo)
+admin.site.register(Badge)
+admin.site.register(UserBadge)
+admin.site.register(UserStats)

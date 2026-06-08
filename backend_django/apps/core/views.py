@@ -25,6 +25,7 @@ from rest_framework.views import APIView
 
 from .models import (
     ActivityLog,
+    Badge,
     Board,
     BoardColumn,
     GithubAppInstallation,
@@ -49,9 +50,15 @@ from .models import (
     TaskStatus,
     TaskWarning,
     UserAccount,
+    UserBadge,
 )
+from . import gamification
 from .serializers import (
     ActivityLogSerializer,
+    BadgeSerializer,
+    GamificationProfileSerializer,
+    LeaderboardRowSerializer,
+    UserBadgeSerializer,
     BoardColumnSerializer,
     BoardSerializer,
     ChangePasswordSerializer,
@@ -2151,4 +2158,122 @@ class ProjectRepoDetailView(APIView):
 
         repo.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ---------------------------------------------------------------------------
+# Gamification
+# ---------------------------------------------------------------------------
+def _resolve_target_user(request, param: str):
+    """Return (user, error_response). Falls back to the authenticated user."""
+    user_id = request.query_params.get(param)
+    if user_id:
+        user = UserAccount.objects.select_related("system_role").filter(pk=user_id).first()
+        if not user:
+            return None, Response({"detail": "Usuario no encontrado."}, status=status.HTTP_404_NOT_FOUND)
+        return user, None
+    return request.user, None
+
+
+class BadgeViewSet(viewsets.ModelViewSet):
+    """Badge catalog. Anyone authenticated can read; only admins manage it."""
+
+    queryset = Badge.objects.all()
+    serializer_class = BadgeSerializer
+
+    def get_permissions(self):
+        if getattr(self, "action", None) in ("list", "retrieve"):
+            return [IsAuthenticated()]
+        return [IsAdminUser()]
+
+
+class GamificationProfileView(APIView):
+    @extend_schema(
+        responses={200: GamificationProfileSerializer},
+        tags=["gamification"],
+    )
+    def get(self, request):
+        """One user's XP/level/streak. Defaults to the current user; ?user_id= for another."""
+        user, error = _resolve_target_user(request, "user_id")
+        if error:
+            return error
+        stats = gamification.compute_user_stats(user)
+        return Response({"user": user.id_user, "username": user.username, **stats})
+
+
+class UserBadgeListView(APIView):
+    @extend_schema(
+        responses={200: UserBadgeSerializer(many=True)},
+        tags=["gamification"],
+    )
+    def get(self, request):
+        """A user's unlocked badges plus progress on the locked ones (?user= optional)."""
+        user, error = _resolve_target_user(request, "user")
+        if error:
+            return error
+
+        unlocked = {
+            ub.badge.code: ub
+            for ub in UserBadge.objects.filter(user=user).select_related("badge")
+        }
+        evaluation = gamification.evaluate_badges(user)
+        rows = []
+        for badge in Badge.objects.filter(is_active=True):
+            ub = unlocked.get(badge.code)
+            info = evaluation.get(badge.code, {})
+            progress = ub.progress if (ub and ub.progress is not None) else info.get("progress")
+            rows.append(
+                {
+                    "badge": BadgeSerializer(badge).data,
+                    "unlocked_at": ub.unlocked_at if ub else None,
+                    "project": ub.project_id if ub else None,
+                    "progress": progress,
+                    "threshold": info.get("threshold"),
+                    "unlocked": ub is not None,
+                }
+            )
+        return Response(rows)
+
+
+class LeaderboardView(APIView):
+    @extend_schema(
+        responses={200: LeaderboardRowSerializer(many=True)},
+        tags=["gamification"],
+    )
+    def get(self, request):
+        """Ranked eligible members. Filters: ?project=&sprint=&scope=individual|team."""
+        project = None
+        sprint = None
+        project_id = request.query_params.get("project")
+        sprint_id = request.query_params.get("sprint")
+
+        if project_id:
+            project = Project.objects.filter(pk=project_id).first()
+            if not project:
+                return Response({"detail": "Proyecto no encontrado."}, status=status.HTTP_404_NOT_FOUND)
+        if sprint_id:
+            sprint = Sprint.objects.select_related("project").filter(pk=sprint_id).first()
+            if not sprint:
+                return Response({"detail": "Sprint no encontrado."}, status=status.HTTP_404_NOT_FOUND)
+
+        rows = gamification.compute_leaderboard(project=project, sprint=sprint)
+        return Response(rows)
+
+
+class GamificationRecomputeView(APIView):
+    """Recompute stats + award newly-earned badges. Admin/cron only; idempotent."""
+
+    permission_classes = [IsAdminUser]
+
+    @extend_schema(request=None, responses={200: dict}, tags=["gamification"])
+    def post(self, request):
+        updated_users = 0
+        badges_awarded = 0
+        for user in UserAccount.objects.select_related("system_role").all():
+            if not gamification.is_eligible(user):
+                continue
+            # Award first so newly-unlocked badge XP is reflected in the snapshot.
+            badges_awarded += gamification.award_badges(user)
+            gamification.refresh_user_stats(user)
+            updated_users += 1
+        return Response({"updated_users": updated_users, "badges_awarded": badges_awarded})
 
