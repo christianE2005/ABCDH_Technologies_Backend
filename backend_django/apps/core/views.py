@@ -1749,12 +1749,11 @@ class TaskWarningListView(APIView):
 
 
 class TaskWarningDetailView(APIView):
-    @extend_schema(responses={204: None, 403: dict, 404: dict}, tags=["warnings"])
-    def delete(self, request, warning_id: int):
-        """Elimina un warning. Solo miembros del proyecto al que pertenece la tarea pueden borrarlo."""
+    def _get_warning_for_member(self, request, warning_id: int):
+        """Devuelve (warning, error_response). Solo miembros del proyecto tienen acceso."""
         warning = TaskWarning.objects.select_related("task__project").filter(pk=warning_id).first()
         if not warning:
-            return Response({"detail": "Warning no encontrado."}, status=status.HTTP_404_NOT_FOUND)
+            return None, Response({"detail": "Warning no encontrado."}, status=status.HTTP_404_NOT_FOUND)
 
         project = warning.task.project
         user = request.user
@@ -1763,7 +1762,85 @@ class TaskWarningDetailView(APIView):
             or ProjectMember.objects.filter(project=project, user=user).exists()
         )
         if not is_member:
-            return Response({"detail": "No tienes permiso para eliminar este warning."}, status=status.HTTP_403_FORBIDDEN)
+            return None, Response(
+                {"detail": "No tienes permiso para acceder a este warning."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return warning, None
+
+    @extend_schema(responses={200: TaskWarningSerializer, 403: dict, 404: dict}, tags=["warnings"])
+    def get(self, request, warning_id: int):
+        """Retorna un warning. Solo miembros del proyecto al que pertenece la tarea pueden verlo."""
+        warning, error = self._get_warning_for_member(request, warning_id)
+        if error:
+            return error
+        return Response(TaskWarningSerializer(warning).data)
+
+    @extend_schema(
+        request=TaskWarningSerializer,
+        responses={200: TaskWarningSerializer, 400: dict, 403: dict, 404: dict},
+        tags=["warnings"],
+    )
+    def patch(self, request, warning_id: int):
+        """
+        Actualiza un warning. Solo miembros del proyecto al que pertenece la tarea pueden modificarlo.
+        Campos editables: status (active|resolved), severity (critical|warning|info), message.
+        Al pasar a 'resolved' se asigna resolved_at; al volver a 'active' se limpia.
+        """
+        warning, error = self._get_warning_for_member(request, warning_id)
+        if error:
+            return error
+
+        data = request.data
+        if "status" in data:
+            new_status = data["status"]
+            valid_statuses = [c[0] for c in TaskWarning.STATUS_CHOICES]
+            if new_status not in valid_statuses:
+                return Response(
+                    {"detail": f"status invalido. Opciones: {', '.join(valid_statuses)}."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if new_status != warning.status:
+                if new_status == TaskWarning.STATUS_RESOLVED:
+                    warning.resolved_at = datetime.now(timezone.utc)
+                else:
+                    warning.resolved_at = None
+            warning.status = new_status
+
+        if "severity" in data:
+            new_severity = data["severity"]
+            valid_severities = [c[0] for c in TaskWarning.SEVERITY_CHOICES]
+            if new_severity not in valid_severities:
+                return Response(
+                    {"detail": f"severity invalido. Opciones: {', '.join(valid_severities)}."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            warning.severity = new_severity
+
+        if "message" in data:
+            message = (data["message"] or "").strip()
+            if not message:
+                return Response(
+                    {"detail": "message no puede estar vacio."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            warning.message = message
+
+        warning.save()
+        return Response(TaskWarningSerializer(warning).data)
+
+    @extend_schema(responses={204: None, 403: dict, 404: dict}, tags=["warnings"])
+    def delete(self, request, warning_id: int):
+        """Elimina un warning. Solo miembros del proyecto al que pertenece la tarea pueden borrarlo."""
+        warning, error = self._get_warning_for_member(request, warning_id)
+        if error:
+            # Mantener el mensaje original de borrado para 403.
+            if error.status_code == status.HTTP_403_FORBIDDEN:
+                return Response(
+                    {"detail": "No tienes permiso para eliminar este warning."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            return error
 
         warning.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
