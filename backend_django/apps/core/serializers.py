@@ -4,6 +4,7 @@ from drf_spectacular.utils import extend_schema_field
 
 from .models import (
     ActivityLog,
+    Badge,
     Board,
     BoardColumn,
     GithubPushEvent,
@@ -14,6 +15,8 @@ from .models import (
     ProjectRepo,
     Role,
     Sprint,
+    SprintBoard,
+    Subtask,
     SystemRole,
     Tag,
     Task,
@@ -24,6 +27,7 @@ from .models import (
     TaskStatus,
     TaskWarning,
     UserAccount,
+    UserBadge,
 )
 
 
@@ -100,6 +104,13 @@ class BoardColumnSerializer(serializers.ModelSerializer):
 class SprintSerializer(serializers.ModelSerializer):
     class Meta:
         model = Sprint
+        fields = "__all__"
+        read_only_fields = ["boards"]
+
+
+class SprintBoardSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SprintBoard
         fields = "__all__"
 
 
@@ -187,6 +198,12 @@ class TaskAssignmentSerializer(serializers.ModelSerializer):
 class TaskCommentSerializer(serializers.ModelSerializer):
     class Meta:
         model = TaskComment
+        fields = "__all__"
+
+
+class SubtaskSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Subtask
         fields = "__all__"
 
 
@@ -279,3 +296,42 @@ class TaskPushMatchSerializer(serializers.ModelSerializer):
             "push_repo",
             "push_commits",
         ]
+
+
+# ---------------------------------------------------------------------------
+# Gamification
+# ---------------------------------------------------------------------------
+class BadgeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Badge
+        fields = "__all__"
+
+
+class UserBadgeSerializer(serializers.ModelSerializer):
+    badge = BadgeSerializer(read_only=True)
+
+    class Meta:
+        model = UserBadge
+        fields = ["id_user_badge", "badge", "project", "unlocked_at", "progress"]
+
+
+class GamificationProfileSerializer(serializers.Serializer):
+    """Read-only shape for GET /api/gamification/profile/."""
+
+    user = serializers.IntegerField()
+    username = serializers.CharField()
+    total_xp = serializers.IntegerField()
+    level = serializers.IntegerField()
+    xp_into_level = serializers.IntegerField()
+    xp_for_next_level = serializers.IntegerField()
+    current_streak = serializers.IntegerField()
+    longest_streak = serializers.IntegerField()
+    is_eligible = serializers.BooleanField()
+
+
+class LeaderboardRowSerializer(serializers.Serializer):
+    user = serializers.IntegerField()
+    username = serializers.CharField()
+    total_xp = serializers.IntegerField()
+    level = serializers.IntegerField()
+    rank = serializers.IntegerField()

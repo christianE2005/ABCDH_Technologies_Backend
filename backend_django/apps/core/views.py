@@ -25,6 +25,7 @@ from rest_framework.views import APIView
 
 from .models import (
     ActivityLog,
+    Badge,
     Board,
     BoardColumn,
     GithubAppInstallation,
@@ -37,6 +38,8 @@ from .models import (
     ProjectRepo,
     Role,
     Sprint,
+    SprintBoard,
+    Subtask,
     SystemRole,
     Tag,
     Task,
@@ -47,9 +50,15 @@ from .models import (
     TaskStatus,
     TaskWarning,
     UserAccount,
+    UserBadge,
 )
+from . import gamification
 from .serializers import (
     ActivityLogSerializer,
+    BadgeSerializer,
+    GamificationProfileSerializer,
+    LeaderboardRowSerializer,
+    UserBadgeSerializer,
     BoardColumnSerializer,
     BoardSerializer,
     ChangePasswordSerializer,
@@ -66,7 +75,9 @@ from .serializers import (
     RefreshSerializer,
     RegisterSerializer,
     RoleSerializer,
+    SprintBoardSerializer,
     SprintSerializer,
+    SubtaskSerializer,
     SystemRoleSerializer,
     TagSerializer,
     TaskAssignmentSerializer,
@@ -379,13 +390,13 @@ class RoleViewSet(viewsets.ModelViewSet):
     serializer_class = RoleSerializer
 
     def get_permissions(self):
-        if self.action in ('list', 'retrieve'):
+        if getattr(self, 'action', None) in ('list', 'retrieve'):
             authentication_classes = []
             return [AllowAny()]
         return [IsAdminUser()]
 
     def get_authenticators(self):
-        if self.action in ('list', 'retrieve'):
+        if getattr(self, 'action', None) in ('list', 'retrieve'):
             return []
         return super().get_authenticators()
 
@@ -716,6 +727,41 @@ class TaskAssignmentViewSet(viewsets.ModelViewSet):
             qs = qs.filter(task_id=task_id)
         if user_id_param is not None:
             qs = qs.filter(assigned_to_id=user_id_param)
+        return qs
+
+
+class SubtaskViewSet(viewsets.ModelViewSet):
+    queryset = Subtask.objects.all()
+    serializer_class = SubtaskSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        user_project_ids = Project.objects.filter(
+            Q(members__user=user) | Q(created_by=user)
+        ).values_list('id_project', flat=True)
+        qs = Subtask.objects.filter(parent_task__project_id__in=user_project_ids)
+        task_id = self.request.query_params.get('task')
+        if task_id is not None:
+            qs = qs.filter(parent_task_id=task_id)
+        return qs
+
+
+class SprintBoardViewSet(viewsets.ModelViewSet):
+    queryset = SprintBoard.objects.all()
+    serializer_class = SprintBoardSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        user_project_ids = Project.objects.filter(
+            Q(members__user=user) | Q(created_by=user)
+        ).values_list('id_project', flat=True)
+        qs = SprintBoard.objects.filter(sprint__project_id__in=user_project_ids)
+        sprint_id = self.request.query_params.get('sprint')
+        if sprint_id is not None:
+            qs = qs.filter(sprint_id=sprint_id)
+        board_id = self.request.query_params.get('board')
+        if board_id is not None:
+            qs = qs.filter(board_id=board_id)
         return qs
 
 
@@ -1710,12 +1756,11 @@ class TaskWarningListView(APIView):
 
 
 class TaskWarningDetailView(APIView):
-    @extend_schema(responses={204: None, 403: dict, 404: dict}, tags=["warnings"])
-    def delete(self, request, warning_id: int):
-        """Elimina un warning. Solo miembros del proyecto al que pertenece la tarea pueden borrarlo."""
+    def _get_warning_for_member(self, request, warning_id: int):
+        """Devuelve (warning, error_response). Solo miembros del proyecto tienen acceso."""
         warning = TaskWarning.objects.select_related("task__project").filter(pk=warning_id).first()
         if not warning:
-            return Response({"detail": "Warning no encontrado."}, status=status.HTTP_404_NOT_FOUND)
+            return None, Response({"detail": "Warning no encontrado."}, status=status.HTTP_404_NOT_FOUND)
 
         project = warning.task.project
         user = request.user
@@ -1724,7 +1769,85 @@ class TaskWarningDetailView(APIView):
             or ProjectMember.objects.filter(project=project, user=user).exists()
         )
         if not is_member:
-            return Response({"detail": "No tienes permiso para eliminar este warning."}, status=status.HTTP_403_FORBIDDEN)
+            return None, Response(
+                {"detail": "No tienes permiso para acceder a este warning."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return warning, None
+
+    @extend_schema(responses={200: TaskWarningSerializer, 403: dict, 404: dict}, tags=["warnings"])
+    def get(self, request, warning_id: int):
+        """Retorna un warning. Solo miembros del proyecto al que pertenece la tarea pueden verlo."""
+        warning, error = self._get_warning_for_member(request, warning_id)
+        if error:
+            return error
+        return Response(TaskWarningSerializer(warning).data)
+
+    @extend_schema(
+        request=TaskWarningSerializer,
+        responses={200: TaskWarningSerializer, 400: dict, 403: dict, 404: dict},
+        tags=["warnings"],
+    )
+    def patch(self, request, warning_id: int):
+        """
+        Actualiza un warning. Solo miembros del proyecto al que pertenece la tarea pueden modificarlo.
+        Campos editables: status (active|resolved), severity (critical|warning|info), message.
+        Al pasar a 'resolved' se asigna resolved_at; al volver a 'active' se limpia.
+        """
+        warning, error = self._get_warning_for_member(request, warning_id)
+        if error:
+            return error
+
+        data = request.data
+        if "status" in data:
+            new_status = data["status"]
+            valid_statuses = [c[0] for c in TaskWarning.STATUS_CHOICES]
+            if new_status not in valid_statuses:
+                return Response(
+                    {"detail": f"status invalido. Opciones: {', '.join(valid_statuses)}."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if new_status != warning.status:
+                if new_status == TaskWarning.STATUS_RESOLVED:
+                    warning.resolved_at = datetime.now(timezone.utc)
+                else:
+                    warning.resolved_at = None
+            warning.status = new_status
+
+        if "severity" in data:
+            new_severity = data["severity"]
+            valid_severities = [c[0] for c in TaskWarning.SEVERITY_CHOICES]
+            if new_severity not in valid_severities:
+                return Response(
+                    {"detail": f"severity invalido. Opciones: {', '.join(valid_severities)}."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            warning.severity = new_severity
+
+        if "message" in data:
+            message = (data["message"] or "").strip()
+            if not message:
+                return Response(
+                    {"detail": "message no puede estar vacio."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            warning.message = message
+
+        warning.save()
+        return Response(TaskWarningSerializer(warning).data)
+
+    @extend_schema(responses={204: None, 403: dict, 404: dict}, tags=["warnings"])
+    def delete(self, request, warning_id: int):
+        """Elimina un warning. Solo miembros del proyecto al que pertenece la tarea pueden borrarlo."""
+        warning, error = self._get_warning_for_member(request, warning_id)
+        if error:
+            # Mantener el mensaje original de borrado para 403.
+            if error.status_code == status.HTTP_403_FORBIDDEN:
+                return Response(
+                    {"detail": "No tienes permiso para eliminar este warning."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            return error
 
         warning.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -2035,4 +2158,122 @@ class ProjectRepoDetailView(APIView):
 
         repo.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ---------------------------------------------------------------------------
+# Gamification
+# ---------------------------------------------------------------------------
+def _resolve_target_user(request, param: str):
+    """Return (user, error_response). Falls back to the authenticated user."""
+    user_id = request.query_params.get(param)
+    if user_id:
+        user = UserAccount.objects.select_related("system_role").filter(pk=user_id).first()
+        if not user:
+            return None, Response({"detail": "Usuario no encontrado."}, status=status.HTTP_404_NOT_FOUND)
+        return user, None
+    return request.user, None
+
+
+class BadgeViewSet(viewsets.ModelViewSet):
+    """Badge catalog. Anyone authenticated can read; only admins manage it."""
+
+    queryset = Badge.objects.all()
+    serializer_class = BadgeSerializer
+
+    def get_permissions(self):
+        if getattr(self, "action", None) in ("list", "retrieve"):
+            return [IsAuthenticated()]
+        return [IsAdminUser()]
+
+
+class GamificationProfileView(APIView):
+    @extend_schema(
+        responses={200: GamificationProfileSerializer},
+        tags=["gamification"],
+    )
+    def get(self, request):
+        """One user's XP/level/streak. Defaults to the current user; ?user_id= for another."""
+        user, error = _resolve_target_user(request, "user_id")
+        if error:
+            return error
+        stats = gamification.compute_user_stats(user)
+        return Response({"user": user.id_user, "username": user.username, **stats})
+
+
+class UserBadgeListView(APIView):
+    @extend_schema(
+        responses={200: UserBadgeSerializer(many=True)},
+        tags=["gamification"],
+    )
+    def get(self, request):
+        """A user's unlocked badges plus progress on the locked ones (?user= optional)."""
+        user, error = _resolve_target_user(request, "user")
+        if error:
+            return error
+
+        unlocked = {
+            ub.badge.code: ub
+            for ub in UserBadge.objects.filter(user=user).select_related("badge")
+        }
+        evaluation = gamification.evaluate_badges(user)
+        rows = []
+        for badge in Badge.objects.filter(is_active=True):
+            ub = unlocked.get(badge.code)
+            info = evaluation.get(badge.code, {})
+            progress = ub.progress if (ub and ub.progress is not None) else info.get("progress")
+            rows.append(
+                {
+                    "badge": BadgeSerializer(badge).data,
+                    "unlocked_at": ub.unlocked_at if ub else None,
+                    "project": ub.project_id if ub else None,
+                    "progress": progress,
+                    "threshold": info.get("threshold"),
+                    "unlocked": ub is not None,
+                }
+            )
+        return Response(rows)
+
+
+class LeaderboardView(APIView):
+    @extend_schema(
+        responses={200: LeaderboardRowSerializer(many=True)},
+        tags=["gamification"],
+    )
+    def get(self, request):
+        """Ranked eligible members. Filters: ?project=&sprint=&scope=individual|team."""
+        project = None
+        sprint = None
+        project_id = request.query_params.get("project")
+        sprint_id = request.query_params.get("sprint")
+
+        if project_id:
+            project = Project.objects.filter(pk=project_id).first()
+            if not project:
+                return Response({"detail": "Proyecto no encontrado."}, status=status.HTTP_404_NOT_FOUND)
+        if sprint_id:
+            sprint = Sprint.objects.select_related("project").filter(pk=sprint_id).first()
+            if not sprint:
+                return Response({"detail": "Sprint no encontrado."}, status=status.HTTP_404_NOT_FOUND)
+
+        rows = gamification.compute_leaderboard(project=project, sprint=sprint)
+        return Response(rows)
+
+
+class GamificationRecomputeView(APIView):
+    """Recompute stats + award newly-earned badges. Admin/cron only; idempotent."""
+
+    permission_classes = [IsAdminUser]
+
+    @extend_schema(request=None, responses={200: dict}, tags=["gamification"])
+    def post(self, request):
+        updated_users = 0
+        badges_awarded = 0
+        for user in UserAccount.objects.select_related("system_role").all():
+            if not gamification.is_eligible(user):
+                continue
+            # Award first so newly-unlocked badge XP is reflected in the snapshot.
+            badges_awarded += gamification.award_badges(user)
+            gamification.refresh_user_stats(user)
+            updated_users += 1
+        return Response({"updated_users": updated_users, "badges_awarded": badges_awarded})
 

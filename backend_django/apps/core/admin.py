@@ -2,6 +2,7 @@ from django.contrib import admin
 
 from .models import (
     ActivityLog,
+    Badge,
     Board,
     BoardColumn,
     GithubAppInstallation,
@@ -14,6 +15,8 @@ from .models import (
     ProjectRepo,
     Role,
     Sprint,
+    SprintBoard,
+    Subtask,
     SystemRole,
     Tag,
     Task,
@@ -24,6 +27,8 @@ from .models import (
     TaskStatus,
     TaskWarning,
     UserAccount,
+    UserBadge,
+    UserStats,
 )
 
 admin.site.register(UserAccount)
@@ -35,6 +40,7 @@ admin.site.register(ProjectMember)
 admin.site.register(Board)
 admin.site.register(BoardColumn)
 admin.site.register(Sprint)
+admin.site.register(SprintBoard)
 admin.site.register(Milestone)
 admin.site.register(Tag)
 admin.site.register(TaskStatus)
@@ -44,8 +50,12 @@ admin.site.register(TaskAssignment)
 admin.site.register(TaskComment)
 admin.site.register(TaskWarning)
 admin.site.register(TaskPushMatch)
+admin.site.register(Subtask)
 admin.site.register(ActivityLog)
 admin.site.register(GithubConnection)
 admin.site.register(GithubAppInstallation)
 admin.site.register(GithubPushEvent)
 admin.site.register(GithubRepo)
+admin.site.register(Badge)
+admin.site.register(UserBadge)
+admin.site.register(UserStats)

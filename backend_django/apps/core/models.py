@@ -77,6 +77,7 @@ class Project(models.Model):
     name = models.CharField(max_length=150)
     description = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    start_date = models.DateField(null=True, blank=True)
     end_date = models.DateField(null=True, blank=True)
     status = models.CharField(max_length=50, choices=STATUS_CHOICES, default=IN_PROGRESS)
     created_by = models.ForeignKey(
@@ -280,12 +281,41 @@ class Sprint(models.Model):
     start_date = models.DateField(null=True, blank=True)
     end_date = models.DateField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=PLANNED)
+    boards = models.ManyToManyField(
+        "Board",
+        through="SprintBoard",
+        blank=True,
+        related_name="sprints",
+    )
 
     class Meta:
         db_table = "sprint"
 
     def __str__(self):
         return self.name
+
+
+class SprintBoard(models.Model):
+    id_sprint_board = models.BigAutoField(primary_key=True)
+    sprint = models.ForeignKey(
+        Sprint,
+        on_delete=models.CASCADE,
+        db_column="id_sprint",
+        related_name="sprint_boards",
+    )
+    board = models.ForeignKey(
+        Board,
+        on_delete=models.CASCADE,
+        db_column="id_board",
+        related_name="sprint_boards",
+    )
+
+    class Meta:
+        db_table = "sprint_board"
+        unique_together = ("sprint", "board")
+
+    def __str__(self):
+        return f"{self.sprint.name} — {self.board.name}"
 
 
 class Milestone(models.Model):
@@ -404,6 +434,7 @@ class Task(models.Model):
     scrum_number = models.PositiveIntegerField(null=True, blank=True)
     story_points = models.PositiveSmallIntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    start_date = models.DateField(null=True, blank=True)
     due_date = models.DateField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 
@@ -429,6 +460,28 @@ class Task(models.Model):
         else:
             self.completed_at = None
         super().save(*args, **kwargs)
+
+
+class Subtask(models.Model):
+    id_subtask = models.BigAutoField(primary_key=True)
+    parent_task = models.ForeignKey(
+        Task,
+        on_delete=models.CASCADE,
+        db_column="id_task",
+        related_name="subtasks",
+    )
+    title = models.CharField(max_length=200)
+    description = models.TextField(null=True, blank=True)
+    order = models.PositiveIntegerField(default=0)
+    is_completed = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "subtask"
+        ordering = ["order"]
+
+    def __str__(self):
+        return self.title
 
 
 class TaskAssignment(models.Model):
@@ -645,6 +698,104 @@ class TaskPushMatch(models.Model):
         db_table = "task_push_match"
         ordering = ["-created_at"]
         unique_together = ("task", "push")
+
+
+class Badge(models.Model):
+    """Catalog of earnable badges (seeded, admin-editable)."""
+
+    CATEGORY_DELIVERY = "delivery"
+    CATEGORY_QUALITY = "quality"
+    CATEGORY_TEAMWORK = "teamwork"
+    CATEGORY_MILESTONE = "milestone"
+    CATEGORY_CHOICES = [
+        (CATEGORY_DELIVERY, "Delivery"),
+        (CATEGORY_QUALITY, "Quality"),
+        (CATEGORY_TEAMWORK, "Teamwork"),
+        (CATEGORY_MILESTONE, "Milestone"),
+    ]
+
+    id_badge = models.BigAutoField(primary_key=True)
+    code = models.CharField(max_length=50, unique=True)
+    name = models.CharField(max_length=100)
+    description = models.TextField(null=True, blank=True)
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default=CATEGORY_DELIVERY)
+    tier = models.PositiveSmallIntegerField(default=1)
+    icon = models.CharField(max_length=50, null=True, blank=True)
+    xp_reward = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "badge"
+        ordering = ["category", "tier", "code"]
+
+    def __str__(self):
+        return self.code
+
+
+class UserBadge(models.Model):
+    """A badge unlocked by a user (optionally scoped to a project)."""
+
+    id_user_badge = models.BigAutoField(primary_key=True)
+    user = models.ForeignKey(
+        UserAccount,
+        on_delete=models.CASCADE,
+        db_column="id_user",
+        related_name="user_badges",
+    )
+    badge = models.ForeignKey(
+        Badge,
+        on_delete=models.CASCADE,
+        db_column="id_badge",
+        related_name="user_badges",
+    )
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        db_column="id_project",
+        related_name="user_badges",
+    )
+    unlocked_at = models.DateTimeField(auto_now_add=True)
+    progress = models.IntegerField(null=True, blank=True)
+
+    class Meta:
+        db_table = "user_badge"
+        ordering = ["-unlocked_at"]
+        constraints = [
+            # NULLs are distinct in SQL, so a plain unique_together over a nullable
+            # column would not prevent duplicate global unlocks. Split into two.
+            models.UniqueConstraint(
+                fields=["user", "badge", "project"],
+                name="unique_user_badge_per_project",
+                condition=models.Q(project__isnull=False),
+            ),
+            models.UniqueConstraint(
+                fields=["user", "badge"],
+                name="unique_user_badge_global",
+                condition=models.Q(project__isnull=True),
+            ),
+        ]
+
+
+class UserStats(models.Model):
+    """Optional snapshot cache of computed gamification stats, refreshed by recompute."""
+
+    id_user_stats = models.BigAutoField(primary_key=True)
+    user = models.OneToOneField(
+        UserAccount,
+        on_delete=models.CASCADE,
+        db_column="id_user",
+        related_name="gamification_stats",
+    )
+    total_xp = models.PositiveIntegerField(default=0)
+    level = models.PositiveIntegerField(default=1)
+    current_streak = models.PositiveIntegerField(default=0)
+    longest_streak = models.PositiveIntegerField(default=0)
+    computed_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "user_stats"
 
 
 class GithubRepo(models.Model):
